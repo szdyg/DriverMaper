@@ -145,7 +145,7 @@
     </ClCompile>
     <Link>
       <GenerateMapFile>true</GenerateMapFile>
-      <AdditionalDependencies>WSock.lib;netio.lib;uuid.lib;libcntpr.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -6,7 +6,8 @@
 #pragma warning(disable: 4055)
 #pragma warning(disable: 4054)
 
-typedef struct _KAPC_STATE {
+typedef struct _KAPC_STATE 
+{
     LIST_ENTRY ApcListHead[MaximumMode];
     struct _KPROCESS *Process;
     union {
@@ -30,30 +31,17 @@ NTKERNELAPI PPEB PsGetProcessPeb(PEPROCESS Process);
 NTKERNELAPI PVOID NTAPI PsGetProcessWow64Process(PEPROCESS Process);
 NTKERNELAPI VOID NTAPI KeAttachProcess(PEPROCESS Process);
 NTKERNELAPI VOID NTAPI KeDetachProcess();
-NTKERNELAPI
-VOID
-KeStackAttachProcess(
-    _Inout_ PRKPROCESS PROCESS,
-    _Out_ PRKAPC_STATE ApcState
-);
+NTKERNELAPI VOID KeStackAttachProcess(_Inout_ PRKPROCESS PROCESS, _Out_ PRKAPC_STATE ApcState);
 
-NTKERNELAPI
-VOID
-KeUnstackDetachProcess(
-    _In_ PRKAPC_STATE ApcState
-);
+NTKERNELAPI VOID KeUnstackDetachProcess(_In_ PRKAPC_STATE ApcState);
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-ZwAllocateVirtualMemory(
+NTSYSAPI NTSTATUS NTAPI ZwAllocateVirtualMemory(
     _In_ HANDLE ProcessHandle,
     _Inout_ PVOID *BaseAddress,
     _In_ ULONG_PTR ZeroBits,
     _Inout_ PSIZE_T RegionSize,
     _In_ ULONG AllocationType,
-    _In_ ULONG Protect
-);
+    _In_ ULONG Protect);
 
 typedef NTSTATUS(__fastcall *MIPROCESSLIST)(PVOID pDriverSetion, int bLoad);
 typedef NTSTATUS(__fastcall *RtlInsertInvertedFunctionTableWin7)(PVOID PsInvertedFunctionTable, PVOID ImageBase, SIZE_T ImageSize);
@@ -69,10 +57,10 @@ UCHAR ObRegCode[7] =
 "\xB8\x01\x00\x00\x00" //4
 "\xC3";                //5
 
-					   /*
-					   .text:0000000140148178 48 89 5C 24 08                                mov     [rsp+arg_0], rbx
-					   .text:000000014014817D 48 89 6C 24 10
-					   */
+/*
+.text:0000000140148178 48 89 5C 24 08                                mov     [rsp+arg_0], rbx
+.text:000000014014817D 48 89 6C 24 10
+*/
 UCHAR ObRegOldCode[7] = { 0 };
 
 extern PSHORT NtBuildNumber;
@@ -342,13 +330,16 @@ BOOLEAN FuckAllSystemWin10(PVOID pDriverSection)
 	for (i = 0; i < 0xff; i++)
 	{
 
-		__try {
-			if (*pMiUnloadSystemImage == 0xe8 && *(pMiUnloadSystemImage - 1) == 0xcb && *(pMiUnloadSystemImage - 4) == 0xd2 && *(pMiUnloadSystemImage - 5) == 0x33)
+		__try 
+        {
+			if (*pMiUnloadSystemImage == 0xe8 && 
+                *(pMiUnloadSystemImage - 1) == 0xcb && 
+                *(pMiUnloadSystemImage - 4) == 0xd2 && 
+                *(pMiUnloadSystemImage - 5) == 0x33)
 			{
 				pMiProcessLoaderEntry = GetCallAddress(pMiUnloadSystemImage);
 				if (pMiProcessLoaderEntry == NULL)
 					return FALSE;
-
 				break;
 			}
 		}
@@ -373,18 +364,21 @@ BOOLEAN FuckSystemWin7(PVOID pDriverSection)
 	size_t i = 0;
 
 	RtlInitUnicodeString(&usFuncName, L"EtwWriteString");
-
 	pMiProcessLoaderEntry = (PUCHAR)MmGetSystemRoutineAddress(&usFuncName);
-
 	pMiProcessLoaderEntry = pMiProcessLoaderEntry - 0x600;
 
-	__try {
+	__try 
+    {
 		for (i = 0; i < 0x600; i++)
 		{
 
-			if (*pMiProcessLoaderEntry == 0xbb && *(pMiProcessLoaderEntry + 1) == 0x01 && *(pMiProcessLoaderEntry + 2) == 0x0 &&
-				*(pMiProcessLoaderEntry + 5) == 0x48 && *(pMiProcessLoaderEntry + 0xc) == 0x8a && *(pMiProcessLoaderEntry + 0xd) == 0xd3
-				&& *(pMiProcessLoaderEntry + 0xe) == 0xe8)
+			if (*pMiProcessLoaderEntry == 0xbb &&
+                *(pMiProcessLoaderEntry + 1) == 0x01 &&
+                *(pMiProcessLoaderEntry + 2) == 0x00 &&
+				*(pMiProcessLoaderEntry + 5) == 0x48 && 
+                *(pMiProcessLoaderEntry + 0xc) == 0x8a && 
+                *(pMiProcessLoaderEntry + 0xd) == 0xd3 && 
+                *(pMiProcessLoaderEntry + 0xe) == 0xe8)
 			{
 				pMiProcessLoaderEntry = pMiProcessLoaderEntry - 0x40;
 				for (i = 0; i < 0x30; i++)

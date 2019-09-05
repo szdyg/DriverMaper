@@ -14,16 +14,16 @@ extern PSHORT NtBuildNumber;
 #define LDRP_RELOCATION_FINAL       0x2
 
 #define IMAGE_REL_BASED_ABSOLUTE                0
-#define IMAGE_REL_BASED_HIGH                    1
-#define IMAGE_REL_BASED_LOW                     2
+#define IMAGE_REL_BASED_HIGH                        1
+#define IMAGE_REL_BASED_LOW                         2
 #define IMAGE_REL_BASED_HIGHLOW                 3
-#define IMAGE_REL_BASED_HIGHADJ                 4
-#define IMAGE_REL_BASED_MIPS_JMPADDR            5
-#define IMAGE_REL_BASED_SECTION                 6
-#define IMAGE_REL_BASED_REL32                   7
-#define IMAGE_REL_BASED_MIPS_JMPADDR16          9
+#define IMAGE_REL_BASED_HIGHADJ                  4
+#define IMAGE_REL_BASED_MIPS_JMPADDR        5
+#define IMAGE_REL_BASED_SECTION                  6
+#define IMAGE_REL_BASED_REL32                      7
+#define IMAGE_REL_BASED_MIPS_JMPADDR16    9
 #define IMAGE_REL_BASED_IA64_IMM64              9
-#define IMAGE_REL_BASED_DIR64                   10
+#define IMAGE_REL_BASED_DIR64                      10
 
 #define IMAGE32(hdr) (hdr->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
 #define IMAGE64(hdr) (hdr->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
@@ -35,7 +35,7 @@ extern PSHORT NtBuildNumber;
 
 typedef NTSTATUS LDR_RELOCATE_IMAGE_RETURN_TYPE;
 
-PLIST_ENTRY PsLoadedModuleList;
+PLIST_ENTRY g_PsLoadedModuleList;
 
 //NTKERNELAPI
 //UCHAR * PsGetProcessImageFileName(IN PEPROCESS Process);
@@ -64,97 +64,90 @@ PLIST_ENTRY PsLoadedModuleList;
 //}
 //extern PSHORT NtBuildNumber;
 
+//************************************
+// FullName:  LdrProcessRelocationBlockLongLong
+// Access:     public 
+// Returns:    PIMAGE_BASE_RELOCATION
+// Parameter: IN ULONG_PTR VA                                     VirualAddress
+// Parameter: IN ULONG ReSizeCount                              重定位项个数
+// Parameter: IN PUSHORT pRebaseStart                         重定位项起始地址
+// Parameter: IN LONGLONG RebaseOffset                      重定位的偏移
+// Info:           修复重定位
+//************************************
 PIMAGE_BASE_RELOCATION
 LdrProcessRelocationBlockLongLong(
     IN ULONG_PTR VA,
-    IN ULONG SizeOfBlock,
-    IN PUSHORT NextOffset,
-    IN LONGLONG Diff
+    IN ULONG ReSizeCount,
+    IN PUSHORT pRebaseStart,
+    IN LONGLONG RebaseOffset
 )
 {
     PUCHAR FixupVA;
     USHORT Offset;
     LONG Temp;
-    //ULONG Temp32;
     ULONGLONG Value64;
-    //LONGLONG Temp64;
 
-    while (SizeOfBlock--) {
-
-        Offset = *NextOffset & (USHORT)0xfff;
+    while (ReSizeCount--)
+    {
+        Offset = *pRebaseStart & (USHORT)0xfff;
         FixupVA = (PUCHAR)(VA + Offset);
-
-        //
-        // Apply the fixups.
-        //
-
-        switch ((*NextOffset) >> 12) {
-
+        // 开始修复FixupVA
+        // 取高4位
+        switch ((*pRebaseStart) >> 12)
+        {
         case IMAGE_REL_BASED_HIGHLOW:
-            //
-            // HighLow - (32-bits) relocate the high and low half
-            //      of an address.
-            //
-            *(LONG UNALIGNED *)FixupVA += (ULONG)Diff;
+            //重定位指向的双字32位都需要被修正
+            *(LONG UNALIGNED *)FixupVA += (ULONG)RebaseOffset;
             break;
 
         case IMAGE_REL_BASED_HIGH:
-            //
-            // High - (16-bits) relocate the high half of an address.
-            //
+            //重定位指向的双字32位中，仅高16位需要修正
             Temp = *(PUSHORT)FixupVA << 16;
-            Temp += (ULONG)Diff;
+            Temp += (ULONG)RebaseOffset;
             *(PUSHORT)FixupVA = (USHORT)(Temp >> 16);
             break;
 
         case IMAGE_REL_BASED_HIGHADJ:
-            //
-            // Adjust high - (16-bits) relocate the high half of an
-            //      address and adjust for sign extension of low half.
-            //
+            //重定位指向的双字32位中，高16位需要修正，低16位需要调整符号
+            // Adjust high - (16-bits) relocate the high half of an address and adjust for sign extension of low half.
 
-            //
-            // If the address has already been relocated then don't
-            // process it again now or information will be lost.
-            //
-            if (Offset & LDRP_RELOCATION_FINAL) {
-                ++NextOffset;
-                --SizeOfBlock;
+            // 如果地址已经重新定位，则现在不要再次处理，否则信息将丢失。
+            // If the address has already been relocated then don't process it again now or information will be lost.
+            if (Offset & LDRP_RELOCATION_FINAL) 
+            {
+                ++pRebaseStart;
+                --ReSizeCount;
                 break;
             }
 
             Temp = *(PUSHORT)FixupVA << 16;
-            ++NextOffset;
-            --SizeOfBlock;
-            Temp += (LONG)(*(PSHORT)NextOffset);
-            Temp += (ULONG)Diff;
+            ++pRebaseStart;
+            --ReSizeCount;
+            Temp += (LONG)(*(PSHORT)pRebaseStart);
+            Temp += (ULONG)RebaseOffset;
             Temp += 0x8000;
             *(PUSHORT)FixupVA = (USHORT)(Temp >> 16);
 
             break;
 
         case IMAGE_REL_BASED_LOW:
-            //
-            // Low - (16-bit) relocate the low half of an address.
-            //
+            //重定位指向的双字32位中，仅低16位需要修正
             Temp = *(PSHORT)FixupVA;
-            Temp += (ULONG)Diff;
+            Temp += (ULONG)RebaseOffset;
             *(PUSHORT)FixupVA = (USHORT)Temp;
             break;
 
         case IMAGE_REL_BASED_IA64_IMM64:
 
-            //
-            // Align it to bundle address before fixing up the
-            // 64-bit immediate value of the movl instruction.
+            // 在修复movl指令的64位立即数之前，将其与地址对齐。
+            // Align it to bundle address before fixing up the 64-bit immediate value of the movl instruction.
             //
 
             FixupVA = (PUCHAR)((ULONG_PTR)FixupVA & ~(15));
             Value64 = (ULONGLONG)0;
 
-            //
+            // 从地址中提取IMM64的低32位
             // Extract the lower 32 bits of IMM64 from bundle
-            //
 
             /*
             EXT_IMM64(Value64,
@@ -253,7 +246,7 @@ LdrProcessRelocationBlockLongLong(
 
         case IMAGE_REL_BASED_DIR64:
 
-            *(ULONGLONG UNALIGNED *)FixupVA += Diff;
+            *(ULONGLONG UNALIGNED *)FixupVA += RebaseOffset;
 
             break;
 
@@ -262,159 +255,127 @@ LdrProcessRelocationBlockLongLong(
             // JumpAddress - (32-bits) relocate a MIPS jump address.
             //
             Temp = (*(PULONG)FixupVA & 0x3ffffff) << 2;
-            Temp += (ULONG)Diff;
+            Temp += (ULONG)RebaseOffset;
             *(PULONG)FixupVA = (*(PULONG)FixupVA & ~0x3ffffff) |
                 ((Temp >> 2) & 0x3ffffff);
 
             break;
 
         case IMAGE_REL_BASED_ABSOLUTE:
-            //
-            // Absolute - no fixup required.
-            //
+            // 仅对齐用，不需要修复
             break;
 
         case IMAGE_REL_BASED_SECTION:
-            //
             // Section Relative reloc.  Ignore for now.
-            //
             break;
 
         case IMAGE_REL_BASED_REL32:
-            //
             // Relative intrasection. Ignore for now.
-            //
             break;
 
         default:
-            //
             // Illegal - illegal relocation type.
-            //
 
             return (PIMAGE_BASE_RELOCATION)NULL;
         }
-        ++NextOffset;
+        ++pRebaseStart;
     }
-    return (PIMAGE_BASE_RELOCATION)NextOffset;
+    return (PIMAGE_BASE_RELOCATION)pRebaseStart;
 }
 
+//************************************
+// FullName:  LdrRelocateImageWithBias
+// Access:     public 
+// Returns:    LDR_RELOCATE_IMAGE_RETURN_TYPE
+// Parameter: __in PVOID NewBase                                                       重新加载的位置
+// Parameter: __in LONGLONG AdditionalBias                                        32位系统，加载64位映像时启动
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Success
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Conflict
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid
+// Info:           重定位没加载到内存的映像文件
+//************************************
 LDR_RELOCATE_IMAGE_RETURN_TYPE
 LdrRelocateImageWithBias(
     __in PVOID NewBase,
     __in LONGLONG AdditionalBias,
     __in LDR_RELOCATE_IMAGE_RETURN_TYPE Success,
     __in LDR_RELOCATE_IMAGE_RETURN_TYPE Conflict,
-    __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid
-)
-/*++
-
-Routine Description:
-
-This routine relocates an image file that was not loaded into memory
-at the preferred address.
-
-Arguments:
-
-NewBase - Supplies a pointer to the image base.
-
-AdditionalBias - An additional quantity to add to all fixups.  The
-32-bit X86 loader uses this when loading 64-bit images
-to specify a NewBase that is actually a 64-bit value.
-
-Success - Value to return if relocation successful.
-
-Conflict - Value to return if can't relocate.
-
-Invalid - Value to return if relocations are invalid.
-
-Return Value:
-
-Success if image is relocated.
-Conflict if image can't be relocated.
-Invalid if image contains invalid fixups.
-
---*/
-
+    __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid)
 {
-    LONGLONG Diff;
-    ULONG TotalCountBytes = 0;
+    LONGLONG Offset;
+    ULONG uRebaseBlockSize = 0;
     ULONG_PTR VA;
     ULONGLONG OldBase;
-    ULONG SizeOfBlock;
-    PUSHORT NextOffset = NULL;
+    ULONG RebaseTableSizeNow;               //当前重定位快大小
+    ULONG uRebaseCount;
+    PUSHORT pRebaseStart = NULL;
     PIMAGE_NT_HEADERS NtHeaders;
-    PIMAGE_BASE_RELOCATION NextBlock;
+    PIMAGE_BASE_RELOCATION pRebaseTable;
     LDR_RELOCATE_IMAGE_RETURN_TYPE Status;
 
     NtHeaders = RtlImageNtHeader(NewBase);
-    if (NtHeaders == NULL) {
+    if (NtHeaders == NULL) 
+    {
         Status = Invalid;
         goto Exit;
     }
 
-    switch (NtHeaders->OptionalHeader.Magic) {
+    switch (NtHeaders->OptionalHeader.Magic)
+    {
+        case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
+            OldBase = ((PIMAGE_NT_HEADERS32)NtHeaders)->OptionalHeader.ImageBase;
+            break;
 
-    case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
+        case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
+            OldBase = ((PIMAGE_NT_HEADERS64)NtHeaders)->OptionalHeader.ImageBase;
+            break;
 
-        OldBase =
-            ((PIMAGE_NT_HEADERS32)NtHeaders)->OptionalHeader.ImageBase;
-        break;
-
-    case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-
-        OldBase =
-            ((PIMAGE_NT_HEADERS64)NtHeaders)->OptionalHeader.ImageBase;
-        break;
-
-    default:
-
-        Status = Invalid;
-        goto Exit;
+        default:
+            Status = Invalid;
+            goto Exit;
     }
 
     //
     // Locate the relocation section.
     //
-
-    NextBlock = (PIMAGE_BASE_RELOCATION)RtlImageDirectoryEntryToData(
-        NewBase, TRUE, IMAGE_DIRECTORY_ENTRY_BASERELOC, &TotalCountBytes);
-
-    //
-    // It is possible for a file to have no relocations, but the relocations
-    // must not have been stripped.
-    //
-
-    if (!NextBlock || !TotalCountBytes)
+    // 找到重定位表
+    pRebaseTable = (PIMAGE_BASE_RELOCATION)RtlImageDirectoryEntryToData(NewBase,
+                                                                                                               TRUE,
+                                                                                                               IMAGE_DIRECTORY_ENTRY_BASERELOC,
+                                                                                                               &uRebaseBlockSize);
+    // 有可能没有没有重定位表，但重定位表不可能被剥离
+    if (!pRebaseTable || !uRebaseBlockSize)
     {
         Status = (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_RELOCS_STRIPPED) ? Conflict : Success;
         goto Exit;
     }
 
-    //
-    // If the image has a relocation table, then apply the specified fixup
-    // information to the image.
-    //
-    Diff = (ULONG_PTR)NewBase - OldBase + AdditionalBias;
-    while (TotalCountBytes)
+    // 开始修复
+    Offset = (ULONG_PTR)NewBase - OldBase + AdditionalBias;
+    while (uRebaseBlockSize)
     {
-        SizeOfBlock = NextBlock->SizeOfBlock;
+        RebaseTableSizeNow = pRebaseTable->SizeOfBlock;
 
         // Prevent crash
-        if (SizeOfBlock == 0)
+        if (RebaseTableSizeNow == 0)
         {
             Status = Invalid;
             goto Exit;
         }
 
-        TotalCountBytes -= SizeOfBlock;
-        SizeOfBlock -= sizeof(IMAGE_BASE_RELOCATION);
-        SizeOfBlock /= sizeof(USHORT);
-        NextOffset = (PUSHORT)((PCHAR)NextBlock + sizeof(IMAGE_BASE_RELOCATION));
+        uRebaseBlockSize -= RebaseTableSizeNow;
+        RebaseTableSizeNow -= sizeof(IMAGE_BASE_RELOCATION);
 
-        VA = (ULONG_PTR)NewBase + NextBlock->VirtualAddress;
-        NextBlock = LdrProcessRelocationBlockLongLong(VA, SizeOfBlock, NextOffset, Diff);
+        //重定位项的个数
+        uRebaseCount = RebaseTableSizeNow / sizeof(USHORT);
 
-        if (!NextBlock)
+        pRebaseStart = (PUSHORT)((PCHAR)pRebaseTable + sizeof(IMAGE_BASE_RELOCATION));
+
+        VA = (ULONG_PTR)NewBase + pRebaseTable->VirtualAddress;
+
+        pRebaseTable = LdrProcessRelocationBlockLongLong(VA, RebaseTableSizeNow, pRebaseStart, Offset);
+
+        if (!pRebaseTable)
         {
             Status = Invalid;
             goto Exit;
@@ -426,38 +387,21 @@ Exit:
     return Status;
 }
 
-LDR_RELOCATE_IMAGE_RETURN_TYPE
-LdrRelocateImage(
+//************************************
+// FullName:  LdrRelocateImage
+// Access:     public 
+// Returns:    LDR_RELOCATE_IMAGE_RETURN_TYPE                              就是NTSATUS
+// Parameter: __in PVOID NewBase                                                         重新加载的位置
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Success          如果成功，返回的值
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Conflict           如果不能重定向，返回的值
+// Parameter: __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid             如果重定向，返回的值
+// Info:           重定位没加载到内存的映像文件
+//************************************
+LDR_RELOCATE_IMAGE_RETURN_TYPE LdrRelocateImage(
     __in PVOID NewBase,
     __in LDR_RELOCATE_IMAGE_RETURN_TYPE Success,
     __in LDR_RELOCATE_IMAGE_RETURN_TYPE Conflict,
-    __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid
-)
-/*++
-
-Routine Description:
-
-This routine relocates an image file that was not loaded into memory
-at the preferred address.
-
-Arguments:
-
-NewBase - Supplies a pointer to the image base.
-
-Success - Value to return if relocation successful.
-
-Conflict - Value to return if can't relocate.
-
-Invalid - Value to return if relocations are invalid.
-
-Return Value:
-
-Success if image is relocated.
-Conflict if image can't be relocated.
-Invalid if image contains invalid fixups.
-
---*/
-
+    __in LDR_RELOCATE_IMAGE_RETURN_TYPE Invalid)
 {
     //
     // Just call LdrRelocateImageWithBias() with a zero bias.
@@ -536,15 +480,16 @@ NTSTATUS LeiLeiInitLdrData(IN PVOID pLdr)
         {
             // Ntoskrnl is always first entry in the list
             // Check if found pointer belongs to Ntoskrnl module
-            if ((PVOID)pListEntry->Blink >= pEntry->DllBase && (PUCHAR)pListEntry->Blink < (PUCHAR)pEntry->DllBase + pEntry->SizeOfImage)
+            if ((PVOID)pListEntry->Blink >= pEntry->DllBase &&
+                (PUCHAR)pListEntry->Blink < (PUCHAR)pEntry->DllBase + pEntry->SizeOfImage)
             {
-                PsLoadedModuleList = pListEntry->Blink;
+                g_PsLoadedModuleList = pListEntry->Blink;
                 break;
             }
         }
     }
 
-    if (!PsLoadedModuleList)
+    if (!g_PsLoadedModuleList)
     {
         DPRINT("LoadDriver: %s: Failed to retrieve PsLoadedModuleList address. Aborting\n", __FUNCTION__);
         return STATUS_NOT_FOUND;
@@ -553,24 +498,31 @@ NTSTATUS LeiLeiInitLdrData(IN PVOID pLdr)
     return STATUS_SUCCESS;
 }
 
+//************************************
+// FullName:  LeiLeiGetSystemModule
+// Access:     public 
+// Returns:    PKLDR_DATA_TABLE_ENTRY
+// Parameter: IN PUNICODE_STRING pName                  模块名
+// Parameter: IN PVOID pAddress                                  地址
+// Info:           通过模块名，或者地址，从LDR链表中找到该模块
+//************************************
 PKLDR_DATA_TABLE_ENTRY LeiLeiGetSystemModule(IN PUNICODE_STRING pName, IN PVOID pAddress)
 {
-    ASSERT((pName != NULL || pAddress != NULL) && PsLoadedModuleList != NULL);
-    if ((pName == NULL && pAddress == NULL) || PsLoadedModuleList == NULL)
+    if ((pName == NULL && pAddress == NULL) || g_PsLoadedModuleList == NULL)
         return NULL;
 
     // No images
-    if (IsListEmpty(PsLoadedModuleList))
+    if (IsListEmpty(g_PsLoadedModuleList))
         return NULL;
 
     // Search in PsLoadedModuleList
-    for (PLIST_ENTRY pListEntry = PsLoadedModuleList->Flink; pListEntry != PsLoadedModuleList; pListEntry = pListEntry->Flink)
+    for (PLIST_ENTRY pListEntry = g_PsLoadedModuleList->Flink; pListEntry != g_PsLoadedModuleList; pListEntry = pListEntry->Flink)
     {
         PKLDR_DATA_TABLE_ENTRY pEntry = CONTAINING_RECORD(pListEntry, KLDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
 
         // Check by name or by address
-        if ((pName && RtlCompareUnicodeString(&pEntry->BaseDllName, pName, TRUE) == 0) ||
-            (pAddress && pAddress >= pEntry->DllBase && (PUCHAR)pAddress < (PUCHAR)pEntry->DllBase + pEntry->SizeOfImage))
+        if ((pName && RtlCompareUnicodeString(&pEntry->BaseDllName, pName, TRUE) == 0) ||                                                               //通过模块名查找
+            (pAddress && pAddress >= pEntry->DllBase && (PUCHAR)pAddress < (PUCHAR)pEntry->DllBase + pEntry->SizeOfImage))         //通过地址查找
         {
             return pEntry;
         }
@@ -579,6 +531,16 @@ PKLDR_DATA_TABLE_ENTRY LeiLeiGetSystemModule(IN PUNICODE_STRING pName, IN PVOID 
     return NULL;
 }
 
+//************************************
+// FullName:  LeiLeiGetModuleExport
+// Access:    public 
+// Returns:   PVOID
+// Parameter: IN PVOID pBase                      映像基址
+// Parameter: IN PCCHAR name_ord                  函数名或者序号
+// Parameter: IN PEPROCESS pProcess
+// Parameter: IN PUNICODE_STRING baseName
+// Info:      从导出表中获取函数地址
+//************************************
 PVOID LeiLeiGetModuleExport(IN PVOID pBase, IN PCCHAR name_ord, IN PEPROCESS pProcess, IN PUNICODE_STRING baseName)
 {
     PIMAGE_DOS_HEADER pDosHdr = (PIMAGE_DOS_HEADER)pBase;
@@ -648,51 +610,9 @@ PVOID LeiLeiGetModuleExport(IN PVOID pBase, IN PCCHAR name_ord, IN PEPROCESS pPr
             // Check forwarded export
             if (pAddress >= (ULONG_PTR)pExport && pAddress <= (ULONG_PTR)pExport + expSize)
             {
-                /*WCHAR strbuf[256] = { 0 };
-                ANSI_STRING forwarder = { 0 };
-                ANSI_STRING import = { 0 };
-
-                UNICODE_STRING uForwarder = { 0 };
-                ULONG delimIdx = 0;
-                PVOID forwardBase = NULL;
-                PVOID result = NULL;*/
-
                 // System image, not supported
                 if (pProcess == NULL)
                     return NULL;
-
-                //RtlInitAnsiString(&forwarder, (PCSZ)pAddress);
-                //RtlInitEmptyUnicodeString(&uForwarder, strbuf, sizeof(strbuf));
-
-                //RtlAnsiStringToUnicodeString(&uForwarder, &forwarder, FALSE);
-                //for (ULONG j = 0; j < uForwarder.Length / sizeof(WCHAR); j++)
-                //{
-                //  if (uForwarder.Buffer[j] == L'.')
-                //  {
-                //      uForwarder.Length = (USHORT)(j * sizeof(WCHAR));
-                //      uForwarder.Buffer[j] = L'\0';
-                //      delimIdx = j;
-                //      break;
-                //  }
-                //}
-
-                //// Get forward function name/ordinal
-                //RtlInitAnsiString(&import, forwarder.Buffer + delimIdx + 1);
-                //RtlAppendUnicodeToString(&uForwarder, L".dll");
-
-                ////
-                //// Check forwarded module
-                ////
-                //UNICODE_STRING resolved = { 0 };
-                //UNICODE_STRING resolvedName = { 0 };
-                //BBResolveImagePath(NULL, pProcess, KApiShemaOnly, &uForwarder, baseName, &resolved);
-                //BBStripPath(&resolved, &resolvedName);
-
-                //forwardBase = BBGetUserModule(pProcess, &resolvedName, PsGetProcessWow64Process(pProcess) != NULL);
-                //result = BBGetModuleExport(forwardBase, import.Buffer, pProcess, &resolvedName);
-                //RtlFreeUnicodeString(&resolved);
-
-                //return result;
             }
 
             break;
@@ -702,6 +622,18 @@ PVOID LeiLeiGetModuleExport(IN PVOID pBase, IN PCCHAR name_ord, IN PEPROCESS pPr
     return (PVOID)pAddress;
 }
 
+//************************************
+// FullName:  LeiLeiResolveImageRefs
+// Access:     public 
+// Returns:    NTSTATUS
+// Parameter: IN PVOID pImageBase                       映像基址
+// Parameter: IN BOOLEAN systemImage                是否是驱动
+// Parameter: IN PEPROCESS pProcess
+// Parameter: IN BOOLEAN wow64Image                是否是32位
+// Parameter: IN PVOID pContext
+// Parameter: IN ULONG flags
+// Info:           
+//************************************
 NTSTATUS LeiLeiResolveImageRefs(
     IN PVOID pImageBase,
     IN BOOLEAN systemImage,
@@ -716,7 +648,7 @@ NTSTATUS LeiLeiResolveImageRefs(
     PIMAGE_NT_HEADERS pHeader = RtlImageNtHeader(pImageBase);
     PIMAGE_IMPORT_DESCRIPTOR pImportTbl = RtlImageDirectoryEntryToData(pImageBase, TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT, &impSize);
 
-    // No import libs
+    // 没有导入表
     if (pImportTbl == NULL)
         return STATUS_SUCCESS;
 
@@ -750,7 +682,6 @@ NTSTATUS LeiLeiResolveImageRefs(
             DPRINT("LoadDriver: %s: Failed to load import '%wZ'. Status code: 0x%X\n", __FUNCTION__, ustrImpDll, status);
             RtlFreeUnicodeString(&ustrImpDll);
             RtlFreeUnicodeString(&resolved);
-
             return STATUS_NOT_FOUND;
         }
 
@@ -760,8 +691,7 @@ NTSTATUS LeiLeiResolveImageRefs(
             PVOID pFunc = NULL;
 
             // import by name
-            if (THUNK_VAL_T(pHeader, pThunk, u1.AddressOfData) < (IMAGE64(pHeader) ? IMAGE_ORDINAL_FLAG64 : IMAGE_ORDINAL_FLAG32) &&
-                pAddressTable->Name[0])
+            if (THUNK_VAL_T(pHeader, pThunk, u1.AddressOfData) < (IMAGE64(pHeader) ? IMAGE_ORDINAL_FLAG64 : IMAGE_ORDINAL_FLAG32) && pAddressTable->Name[0])
             {
                 impFunc = pAddressTable->Name;
             }
@@ -771,15 +701,13 @@ NTSTATUS LeiLeiResolveImageRefs(
                 impFunc = (PCCHAR)(THUNK_VAL_T(pHeader, pThunk, u1.AddressOfData) & 0xFFFF);
             }
 
-            pFunc = LeiLeiGetModuleExport(
-                systemImage ? pModule.ldrEntry->DllBase : pModule.address,
-                impFunc,
-                NULL,
-                &resolved
-            );
+            pFunc = LeiLeiGetModuleExport(systemImage ? pModule.ldrEntry->DllBase : pModule.address,
+                                          impFunc,
+                                          NULL,
+                                          &resolved);
 
             // No export found
-            if (!pFunc)
+            if (pFunc == NULL)
             {
                 if (THUNK_VAL_T(pHeader, pThunk, u1.AddressOfData) <  (IMAGE64(pHeader) ? IMAGE_ORDINAL_FLAG64 : IMAGE_ORDINAL_FLAG32) && pAddressTable->Name[0])
                     DPRINT("LoadDriver: %s: Failed to resolve import '%wZ' : '%s'\n", __FUNCTION__, ustrImpDll, pAddressTable->Name);
@@ -821,12 +749,19 @@ NTSTATUS LeiLeiResolveImageRefs(
     return status;
 }
 
+//************************************
+// FullName:  LeiLeiMapWorker
+// Access:     public 
+// Returns:    NTSTATUS
+// Parameter: IN PVOID pArg
+// Info:           实际Map驱动的线程
+//************************************
 NTSTATUS LeiLeiMapWorker(IN PVOID pArg)
 {
     NTSTATUS status = STATUS_SUCCESS;
     HANDLE hFile = NULL;
-    PUNICODE_STRING pPath = ((PGLOBAL_INFO)pArg)->pUsMappDriverPath;
-    OBJECT_ATTRIBUTES obAttr = { 0 };
+    PUNICODE_STRING pHideDriverPath = ((PGLOBAL_INFO)pArg)->pUsMappDriverPath;
+    OBJECT_ATTRIBUTES oa = { 0 };
     IO_STATUS_BLOCK statusBlock = { 0 };
     PVOID fileData = NULL;
     PIMAGE_NT_HEADERS pNTHeader = NULL;
@@ -835,33 +770,34 @@ NTSTATUS LeiLeiMapWorker(IN PVOID pArg)
     FILE_STANDARD_INFORMATION fileInfo = { 0 };
     DRIVER_CONTEXT_INFO DriverInfo = { 0 };
  
-    //WCHAR* szSymName = NULL;
-    //szSymName = ExAllocatePool(NonPagedPool, 260 * 2);
-    // 这点内存都没有 玩你麻痹
-    //RtlZeroMemory(szSymName, 260 * 2);
-    //DbgBreakPoint();
-    InitializeObjectAttributes(&obAttr, pPath, OBJ_KERNEL_HANDLE, NULL, NULL);
+    InitializeObjectAttributes(&oa, pHideDriverPath, OBJ_KERNEL_HANDLE, NULL, NULL);
 
     // Open driver file
-    status = ZwCreateFile(
-        &hFile, FILE_READ_DATA | SYNCHRONIZE, &obAttr,
-        &statusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-        FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0
-    );
+    status = ZwCreateFile(&hFile,
+                                     FILE_READ_DATA | SYNCHRONIZE,
+                                     &oa,
+                                     &statusBlock,
+                                     NULL,
+                                     FILE_ATTRIBUTE_NORMAL,
+                                     FILE_SHARE_READ,
+                                     FILE_OPEN,
+                                     FILE_SYNCHRONOUS_IO_NONALERT,
+                                     NULL,
+                                     0);
 
     if (!NT_SUCCESS(status))
     {
-        DPRINT("LoadDriver: %s: Failed to open %wZ. Status: 0x%X\n", __FUNCTION__, pPath, status);
+        DPRINT("LoadDriver: %s: Failed to open %wZ. Status: 0x%X\n", __FUNCTION__, pHideDriverPath, status);
         PsTerminateSystemThread(status);
         return status;
     }
 
-    // Allocate memory for file contents
+    // 查询文件大小，分配内存
     status = ZwQueryInformationFile(hFile, &statusBlock, &fileInfo, sizeof(fileInfo), FileStandardInformation);
     if (NT_SUCCESS(status))
         fileData = ExAllocatePoolWithTag(PagedPool, fileInfo.EndOfFile.QuadPart, 'xxxx');
     else
-        DPRINT("LoadDriver: %s: Failed to get '%wZ' size. Status: 0x%X\n", __FUNCTION__, pPath, status);
+        DPRINT("LoadDriver: %s: Failed to get '%wZ' size. Status: 0x%X\n", __FUNCTION__, pHideDriverPath, status);
 
     // Get file contents
     status = ZwReadFile(hFile, NULL, NULL, NULL, &statusBlock, fileData, fileInfo.EndOfFile.LowPart, NULL, NULL);
@@ -870,12 +806,12 @@ NTSTATUS LeiLeiMapWorker(IN PVOID pArg)
         pNTHeader = RtlImageNtHeader(fileData);
         if (!pNTHeader)
         {
-            DPRINT("LoadDriver: %s: Failed to obtaint NT Header for '%wZ'\n", __FUNCTION__, pPath);
+            DPRINT("LoadDriver: %s: Failed to obtaint NT Header for '%wZ'\n", __FUNCTION__, pHideDriverPath);
             status = STATUS_INVALID_IMAGE_FORMAT;
         }
     }
     else
-        DPRINT("LoadDriver: %s: Failed to read '%wZ'. Status: 0x%X\n", __FUNCTION__, pPath, status);
+        DPRINT("LoadDriver: %s: Failed to read '%wZ'. Status: 0x%X\n", __FUNCTION__, pHideDriverPath, status);
 
     ZwClose(hFile);
 
@@ -900,25 +836,23 @@ NTSTATUS LeiLeiMapWorker(IN PVOID pArg)
                 pSection < (PIMAGE_SECTION_HEADER)(pNTHeader + 1) + pNTHeader->FileHeader.NumberOfSections;
                 pSection++)
             {
-                RtlCopyMemory(
-                    (PUCHAR)imageSection + pSection->VirtualAddress,
-                    (PUCHAR)fileData + pSection->PointerToRawData,
-                    pSection->SizeOfRawData
-                );
+                RtlCopyMemory( (PUCHAR)imageSection + pSection->VirtualAddress,
+                                         (PUCHAR)fileData + pSection->PointerToRawData,
+                                         pSection->SizeOfRawData);
             }
 
-            // Relocate image
+            // 修复重定位
             status = LdrRelocateImage(imageSection, STATUS_SUCCESS, STATUS_CONFLICTING_ADDRESSES, STATUS_INVALID_IMAGE_FORMAT);
             if (!NT_SUCCESS(status))
-                DPRINT("LoadDriver: %s: Failed to relocate image '%wZ'. Status: 0x%X\n", __FUNCTION__, pPath, status);
+                DPRINT("LoadDriver: %s: Failed to relocate image '%wZ'. Status: 0x%X\n", __FUNCTION__, pHideDriverPath, status);
 
-            // Fill IAT
+            // 填充IAT
             if (NT_SUCCESS(status))
                 status = LeiLeiResolveImageRefs(imageSection, TRUE, NULL, FALSE, NULL, 0);
         }
         else
         {
-            DPRINT("LoadDriver: %s: Failed to allocate memory for image '%wZ'\n", __FUNCTION__, pPath);
+            DPRINT("LoadDriver: %s: Failed to allocate memory for image '%wZ'\n", __FUNCTION__, pHideDriverPath);
             status = STATUS_MEMORY_NOT_ALLOCATED;
         }
     }
@@ -973,13 +907,19 @@ NTSTATUS LeiLeiMapWorker(IN PVOID pArg)
         ExFreePoolWithTag(fileData, 'xxxx');
 
     if (NT_SUCCESS(status))
-        DPRINT("LoadDriver: %s: Successfully mapped '%wZ' at 0x%p\n", __FUNCTION__, pPath, imageSection);
+        DPRINT("LoadDriver: %s: Successfully mapped '%wZ' at 0x%p\n", __FUNCTION__, pHideDriverPath, imageSection);
 
     PsTerminateSystemThread(status);
     return status;
 }
 
-/*\\??\\c:test.sys*/
+//************************************
+// FullName:  LeiLeiMMapDriver
+// Access:     public 
+// Returns:    NTSTATUS
+// Parameter: IN PGLOBAL_INFO pInfo
+// Info:           创建LeiLeiMapWorker线程开始工作
+//************************************
 NTSTATUS LeiLeiMMapDriver(IN PGLOBAL_INFO pInfo)
 {
     HANDLE hThread = NULL;

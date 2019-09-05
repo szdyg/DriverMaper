@@ -10,11 +10,12 @@ void DriverUnload(PDRIVER_OBJECT pDriverObject)
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pReg)
 {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
-    UNICODE_STRING us = { 0 };
+    UNICODE_STRING   usCurrentDir = { 0 };
     PUNICODE_STRING pUsHideDriverPath = NULL;
     PUNICODE_STRING pUsLoaderDriverPath = NULL;
     PGLOBAL_INFO pInfo = NULL;
 
+    KdBreakPoint();
     pDriverObject->DriverUnload = DriverUnload;
 
     pInfo = ExAllocatePool(NonPagedPool, sizeof(GLOBAL_INFO));
@@ -29,7 +30,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pReg)
     if (!NT_SUCCESS(status))
         return STATUS_SUCCESS;
 
-    status = LeiLeiStripFilename(&((PKLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection)->FullDllName, &us);
+    status = LeiLeiStripFilename(&((PKLDR_DATA_TABLE_ENTRY)pDriverObject->DriverSection)->FullDllName, &usCurrentDir);
 
     if (!NT_SUCCESS(status))
     {
@@ -48,7 +49,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pReg)
     pUsHideDriverPath = ExAllocatePool(NonPagedPool, sizeof(UNICODE_STRING));
     RtlZeroMemory(pUsHideDriverPath, sizeof(UNICODE_STRING));
 
-    LeiLeiSafeInitStringEx(pUsHideDriverPath, &us, 260 * 2);
+    LeiLeiSafeInitStringEx(pUsHideDriverPath, &usCurrentDir, 260 * 2);
 
     if (pUsHideDriverPath->Buffer == 0)
         return STATUS_SUCCESS;

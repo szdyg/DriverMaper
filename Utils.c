@@ -4,36 +4,7 @@ PVOID g_KernelBase = NULL;
 ULONG g_KernelSize = 0;
 PSYSTEM_SERVICE_DESCRIPTOR_TABLE g_SSDT = NULL;
 
-/// <summary>
-/// Allocate new Unicode string from Paged pool
-/// </summary>
-/// <param name="result">Resulting string</param>
-/// <param name="size">Buffer size in bytes to alloacate</param>
-/// <returns>Status code</returns>
-NTSTATUS LeiLeiSafeAllocateString(OUT PUNICODE_STRING result, IN USHORT size)
-{
-    ASSERT(result != NULL);
-    if (result == NULL || size == 0)
-        return STATUS_INVALID_PARAMETER;
 
-    result->Buffer = (PWCH)ExAllocatePoolWithTag(NonPagedPool, size, 'xxxx');
-    result->Length = 0;
-    result->MaximumLength = size;
-
-    if (result->Buffer)
-        RtlZeroMemory(result->Buffer, size);
-    else
-        return STATUS_NO_MEMORY;
-
-    return STATUS_SUCCESS;
-}
-
-/// <summary>
-/// Allocate and copy string
-/// </summary>
-/// <param name="result">Resulting string</param>
-/// <param name="source">Source string</param>
-/// <returns>Status code</returns>
 NTSTATUS LeiLeiSafeInitString(OUT PUNICODE_STRING result, IN PUNICODE_STRING source)
 {
     ASSERT(result != NULL && source != NULL);
@@ -84,13 +55,6 @@ NTSTATUS LeiLeiSafeInitStringEx(OUT PUNICODE_STRING result, IN PUNICODE_STRING s
     return STATUS_SUCCESS;
 }
 
-/// <summary>
-/// Search for substring
-/// </summary>
-/// <param name="source">Source string</param>
-/// <param name="target">Target string</param>
-/// <param name="CaseInSensitive">Case insensitive search</param>
-/// <returns>Found position or -1 if not found</returns>
 LONG LeiLeiSafeSearchString(IN PUNICODE_STRING source, IN PUNICODE_STRING target, IN BOOLEAN CaseInSensitive)
 {
     ASSERT(source != NULL && target != NULL);
@@ -109,8 +73,7 @@ LONG LeiLeiSafeSearchString(IN PUNICODE_STRING source, IN PUNICODE_STRING target
             target->Length / sizeof(WCHAR),
             target->Buffer,
             target->Length / sizeof(WCHAR),
-            CaseInSensitive
-        ) == 0)
+            CaseInSensitive) == 0)
         {
             return i;
         }
@@ -119,12 +82,7 @@ LONG LeiLeiSafeSearchString(IN PUNICODE_STRING source, IN PUNICODE_STRING target
     return -1;
 }
 
-/// <summary>
-/// Get file name from full path
-/// </summary>
-/// <param name="path">Path.</param>
-/// <param name="name">Resulting name</param>
-/// <returns>Status code</returns>
+
 NTSTATUS LeiLeiStripPath(IN PUNICODE_STRING path, OUT PUNICODE_STRING name)
 {
     ASSERT(path != NULL && name);
@@ -152,12 +110,7 @@ NTSTATUS LeiLeiStripPath(IN PUNICODE_STRING path, OUT PUNICODE_STRING name)
     return STATUS_NOT_FOUND;
 }
 
-/// <summary>
-/// Get directory path name from full path
-/// </summary>
-/// <param name="path">Path</param>
-/// <param name="name">Resulting directory path</param>
-/// <returns>Status code</returns>
+
 NTSTATUS LeiLeiStripFilename(IN PUNICODE_STRING path, OUT PUNICODE_STRING dir)
 {
     ASSERT(path != NULL && dir);
@@ -263,7 +216,7 @@ PVOID LeiLeiGetKernelBase(OUT PULONG pSize)
     NTSTATUS status = STATUS_SUCCESS;
     ULONG bytes = 0;
     PRTL_PROCESS_MODULES pMods = NULL;
-    PVOID checkPtr = NULL;
+    PVOID pfn_NtOpenFile = NULL;
     UNICODE_STRING routineName;
 
     // Already found
@@ -276,8 +229,8 @@ PVOID LeiLeiGetKernelBase(OUT PULONG pSize)
 
     RtlUnicodeStringInit(&routineName, L"NtOpenFile");
 
-    checkPtr = MmGetSystemRoutineAddress(&routineName);
-    if (checkPtr == NULL)
+    pfn_NtOpenFile = MmGetSystemRoutineAddress(&routineName);
+    if (pfn_NtOpenFile == NULL)
         return NULL;
 
     // Protect from UserMode AV
@@ -299,9 +252,9 @@ PVOID LeiLeiGetKernelBase(OUT PULONG pSize)
 
         for (ULONG i = 0; i < pMods->NumberOfModules; i++)
         {
-            // System routine is inside module
-            if (checkPtr >= pMod[i].ImageBase &&
-                checkPtr < (PVOID)((PUCHAR)pMod[i].ImageBase + pMod[i].ImageSize))
+            // NtOpenFile 函数的地址，一定在内核模块中
+            if (pfn_NtOpenFile >= pMod[i].ImageBase && 
+                pfn_NtOpenFile < (PVOID)((PUCHAR)pMod[i].ImageBase + pMod[i].ImageSize))
             {
                 g_KernelBase = pMod[i].ImageBase;
                 g_KernelSize = pMod[i].ImageSize;

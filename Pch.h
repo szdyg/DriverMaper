@@ -19,8 +19,8 @@ typedef struct _GLOBAL_INFO
     size_t ImageSize;
     PVOID ImageBase;
     WCHAR* szSymbloName;
-    PUNICODE_STRING pUsMappDriverPath; // 用于删除
-    PUNICODE_STRING pUsLoaderDriverPath; // 用户删除
+    PUNICODE_STRING pUsMappDriverPath;    // 手动Map驱动的路径
+    PUNICODE_STRING pUsLoaderDriverPath;  // 本驱动的路径
 }GLOBAL_INFO, *PGLOBAL_INFO;
 
 NTKERNELAPI
